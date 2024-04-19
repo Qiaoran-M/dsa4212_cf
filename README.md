@@ -1,3 +1,3 @@
 # dsa4212_cf
 
-collaborative filtering
+This repository contains the collaborative filtering using Nonnegative Matrix Factorization (NMF) method. The NMF model is built from scratch using mainly `numpy` and `jax` libraries in Python. It is assessed by a recommender system task on the [Kaggle user-song rating dataset](https://www.kaggle.com/datasets/rymnikski/dataset-for-collaborative-filters), including performance comparison with a simple baseline model.

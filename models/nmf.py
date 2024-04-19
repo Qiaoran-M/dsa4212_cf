@@ -4,44 +4,43 @@ import jax.numpy as jnp
 
 
 @jax.jit
-# mse loss for batch
+# mse loss for batch with regulation
 def loss(U_batch, S_batch, ratings_batch, lambda_reg):
     pred_ratings_batch = jnp.sum(jnp.multiply(U_batch, S_batch), axis=1)
     squared_diff = (pred_ratings_batch - ratings_batch) ** 2
     l2_reg = lambda_reg * (jnp.sum(jnp.abs(U_batch)) + jnp.sum(jnp.abs(S_batch)))
     return jnp.mean(squared_diff) + l2_reg
-loss_grad_u = jax.jit( jax.value_and_grad(loss, argnums=(0, )) )
-loss_grad_s = jax.jit( jax.value_and_grad(loss, argnums=(1, )) )
+compute_grad_u = jax.jit( jax.grad(loss, argnums=(0, )) )
+compute_grad_s = jax.jit( jax.grad(loss, argnums=(1, )) )
 
-
-def ce(u, s, levels, rating):
-    pred_rating = jnp.array([1 if i == jnp.round(jnp.dot(u, s)) - 1 else 0 for i in range(levels)])
-    true_rating = jnp.array([1 if i == rating - 1 else 0 for i in range(levels)])
-    ce = - true_rating * jnp.log(pred_rating)
-    return jnp.sum(ce)
+@jax.jit
+# mse loss for batch without regulation
+def loss(U_batch, S_batch, ratings_batch):
+    pred_ratings_batch = jnp.sum(jnp.multiply(U_batch, S_batch), axis=1)
+    squared_diff = (pred_ratings_batch - ratings_batch) ** 2
+    return jnp.mean(squared_diff)
 
 
 # Non-negative Matrix Factorization (NMF) implementation using numpy and jax
 class nmf():
     def __init__(self, n_users, n_songs, n_factors):
-        self.U = np.random.normal(0, 1, size=(n_users, n_factors)) / np.sqrt(n_factors)
-        self.S = np.random.normal(0, 1, size=(n_songs, n_factors)) / np.sqrt(n_factors)
+        self.U = np.random.uniform(0, 1, size=(n_users, n_factors)) # / np.sqrt(n_factors)
+        self.S = np.random.uniform(0, 1, size=(n_songs, n_factors)) # / np.sqrt(n_factors)
     
-    def train_batch(self, epoch_i, ratings, indices, learning_rate, lambda_reg, batch_size, mode='TRAIN'):
+    def train_batch(self, ratings, indices, learning_rate, lambda_reg, batch_size, mode='TRAIN'):
         n_batches = indices[0].shape[0] // batch_size
         losses = []
         for batch in range(n_batches):
             user_indices = indices[0][batch * batch_size : (batch + 1) * batch_size]
             song_indices = indices[1][batch * batch_size : (batch + 1) * batch_size]
             U_batch, S_batch = self.U[user_indices], self.S[song_indices]
-            ratings_batch = np.array([ratings[user_indices[i], song_indices[i]] for i in range(batch_size)])
-            loss_u, grads_u = loss_grad_u(U_batch, S_batch, ratings_batch, lambda_reg)
-            loss_s, grads_s = loss_grad_s(U_batch, S_batch, ratings_batch, lambda_reg)
+            ratings_batch = np.array([ratings[user_indices[i], song_indices[i]] for i in range(batch_size)]) 
             if mode == 'TRAIN':
                 # update param (make U and S non-negative)
-                self.U[user_indices] = np.clip(self.U[user_indices] - learning_rate * np.clip(grads_u[0], -1, 1), 0, None)   
-                self.S[song_indices] = np.clip(self.S[song_indices] - learning_rate * np.clip(grads_s[0], -1, 1), 0, None)
-            losses.append(loss_s)
+                grad_u, grad_s = compute_grad_u(U_batch, S_batch, ratings_batch, lambda_reg), compute_grad_s(U_batch, S_batch, ratings_batch, lambda_reg)
+                self.U[user_indices] = np.clip(self.U[user_indices] - learning_rate * np.clip(grad_u[0], -1, 1), 0, None)
+                self.S[song_indices] = np.clip(self.S[song_indices] - learning_rate * np.clip(grad_s[0], -1, 1), 0, None)
+            losses.append(loss(U_batch, S_batch, ratings_batch))
         return np.mean(losses)
 
     def train(self, train_data, val_data, n_epochs, learning_rate, lambda_reg, batch_size):
@@ -51,8 +50,8 @@ class nmf():
         val_ratings, val_indices = val_data[0], val_data[1]
         # training
         for i in range(n_epochs):
-            train_loss = self.train_batch(i, train_ratings, train_indices, learning_rate, lambda_reg, batch_size, mode='TRAIN')
-            val_loss = self.train_batch(i, val_ratings, val_indices, learning_rate, lambda_reg, batch_size, mode='VAL')
+            train_loss = self.train_batch(train_ratings, train_indices, learning_rate, lambda_reg, batch_size, mode='TRAIN')
+            val_loss = self.train_batch(val_ratings, val_indices, learning_rate, lambda_reg, batch_size, mode='VAL')
             train_losses.append(train_loss)
             val_losses.append(val_loss)
             if i % 1 == 0:
